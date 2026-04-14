@@ -64,7 +64,7 @@ services:
 
 
   keycloak:
-    image: ghcr.io/aivot-digital/keycloak-egov-plugins:26.5.3.0
+    image: ghcr.io/aivot-digital/keycloak-egov-plugins:26.5.7.0
     restart: always
     depends_on:
       - keycloak_database
