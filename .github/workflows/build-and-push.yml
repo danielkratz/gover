@@ -69,18 +69,26 @@ jobs:
         run: |
           if ${{ github.event_name == 'pull_request' }}; then
             if [[ "${{ github.event.pull_request.base.ref }}" == "main" || "${{ github.event.pull_request.base.ref }}" == "next" ]]; then
-              SOURCE_BRANCH=${{ github.event.pull_request.head.ref }}
-              echo "value=${SOURCE_BRANCH##*/}-beta-${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+              SOURCE_BRANCH="${{ github.event.pull_request.head.ref }}"
+              BUILD_VERSION="${SOURCE_BRANCH##*/}-beta-${PR_NUMBER}"
             else
-              TARGET_BRANCH=${{ github.event.pull_request.base.ref }}
-              echo "value=${TARGET_BRANCH##*/}-alpha-${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+              TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
+              BUILD_VERSION="${TARGET_BRANCH##*/}-alpha-${PR_NUMBER}"
             fi
           else
             if ${{ github.base_ref == 'next' }}; then
-              echo "value=${GITHUB_RUN_NUMBER#n}" >> "$GITHUB_OUTPUT"
+              BUILD_VERSION="${GITHUB_RUN_NUMBER#n}"
             else
-              echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+              BUILD_VERSION="${GITHUB_REF_NAME#v}"
             fi
+          fi
+
+          SEMVER_PATTERN='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+          if [[ "$BUILD_VERSION" =~ $SEMVER_PATTERN ]]; then
+            echo "value=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Invalid build version::Computed build version '$BUILD_VERSION' is not valid SemVer. Falling back to 0.0.0."
+            echo "value=0.0.0" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Determine package name and set image name
@@ -245,8 +253,10 @@ jobs:
   buildArm64Image:
     name: Build ARM64 image and push preview/release when allowed
     if: >
-      github.event_name == 'push' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+      needs.prepareBuildVars.outputs.build_version != '0.0.0' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+      )
     runs-on: ubuntu-24.04-arm
     needs:
       - testBackend
@@ -309,8 +319,10 @@ jobs:
   buildAmd64Image:
     name: Build AMD64 image and push preview/release when allowed
     if: >
-      github.event_name == 'push' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+      needs.prepareBuildVars.outputs.build_version != '0.0.0' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+      )
     needs:
       - testBackend
       - prepareBuildVars
@@ -375,10 +387,12 @@ jobs:
   mergeImages:
     name: Merge ARM64 and AMD64 images and push to registry
     if: >
-      github.event_name == 'push' ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.draft == false &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+      needs.prepareBuildVars.outputs.build_version != '0.0.0' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository)
+      )
     runs-on: ubuntu-24.04
     permissions:
       contents: read
